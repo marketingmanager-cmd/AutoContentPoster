@@ -1,0 +1,6 @@
+# ไฟล์ลับ ห้ามขึ้น GitHub
+.env
+
+# ไฟล์ขยะของ Python
+__pycache__/
+*.pyc
