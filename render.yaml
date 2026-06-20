@@ -1,0 +1,27 @@
+# render.yaml — Blueprint สำหรับ deploy ขึ้น Render.com
+# วิธีใช้: push โค้ดขึ้น GitHub → ที่ Render กด New → Blueprint → เลือก repo นี้
+# Render จะอ่านไฟล์นี้แล้วตั้งค่าให้อัตโนมัติ (เหลือแค่ใส่ค่า Environment Variables)
+
+services:
+  - type: web
+    name: autocontentposter
+    runtime: python
+    plan: free                 # ฟรี (จะ "หลับ" เมื่อไม่มีคนเข้า ~15 นาที — ดูหมายเหตุใน DEPLOY.md)
+    region: singapore          # ใกล้ไทยสุด ช้าน้อย
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn webapp:app --host 0.0.0.0 --port $PORT"
+    autoDeploy: true           # push GitHub แล้ว deploy ใหม่ให้เอง
+    envVars:
+      # ค่าลับ — ตั้งในหน้า Render Dashboard เอง (sync:false = ไม่เก็บค่าลงไฟล์)
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: TELEGRAM_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: FB_PAGES           # วางเป็น JSON ดิบ เช่น [{"id":"...","name":"...","token":"..."}]
+        sync: false
+      - key: ADMIN_USER         # ชื่อแอดมินเริ่มต้น (เช่น admin)
+        sync: false
+      - key: ADMIN_PASS         # รหัสแอดมินเริ่มต้น (ตั้งให้เดายาก!)
+        sync: false
