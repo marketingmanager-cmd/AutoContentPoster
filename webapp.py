@@ -1093,7 +1093,8 @@ function nav(v){
   if(v==='dash')dashInit();
   if(v==='conn')loadConnections();
   if(v==='users')loadUsers();
-  if(v==='news'&&!window._newsLoaded){window._newsLoaded=true;loadNews('')}  // เปิดมาดึงเรดาร์เซฟตี้อัตโนมัติ
+  if(v==='news'&&!$('newsCards').innerHTML.trim())   // เปิดมาไม่ดึงเอง (ให้ไว) รอผู้ใช้กดปุ่ม
+    $('newsCards').innerHTML='<div class="empty">👆 พิมพ์หัวข้อแล้วกด 🔎 ค้นหา หรือกด 🚨 เรดาร์เซฟตี้ เพื่อดึงข่าวล่าสุด</div>';
 }
 function step(n){for(let i=2;i<=5;i++){const e=$("st"+i);e.classList.toggle("on",i===n);e.classList.toggle("done",i<n)}}
 // แสดงทีละขั้น — โชว์เฉพาะ section เดียว ที่เหลือซ่อน
