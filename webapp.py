@@ -585,13 +585,33 @@ body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:
 .navitem.active{background:var(--grad);color:#fff;font-weight:600;box-shadow:0 8px 22px rgba(14,165,233,.45)}
 .navitem .ic{font-size:17px}
 .nav .foot{margin-top:auto;font-size:11px;color:#6f6b90;padding:8px}
+.nav:not(.is-admin) #navUsers{display:none!important}   /* เมนูผู้ใช้เฉพาะแอดมิน */
+.hamb{display:none;margin-left:auto;background:rgba(255,255,255,.1);border:0;color:#fff;font-size:20px;
+  width:40px;height:40px;border-radius:11px;cursor:pointer;line-height:1}
+.hamb:active{background:rgba(255,255,255,.2)}
 
 /* content */
 .content{flex:1;padding:26px 30px}   /* เต็มความกว้างจอทุกหน้า */
 .content h1{font-size:21px;margin:0 0 4px}
 .content .lead{color:var(--muted);font-size:13px;margin:0 0 20px}
-@media(max-width:820px){.app{flex-direction:column}.nav{width:auto;height:auto;flex-direction:row;
-  position:static;flex-wrap:wrap}.brand{padding:6px}.nav .foot{display:none}.content{padding:18px}}
+
+/* ===== มือถือ: เมนูแฮมเบอร์เกอร์ ===== */
+@media(max-width:820px){
+  .app{flex-direction:column}
+  .nav{width:auto;height:auto;position:sticky;top:0;z-index:60;flex-direction:column;
+    gap:5px;padding:10px 14px;border-right:0;border-bottom:1px solid rgba(255,255,255,.08)}
+  .brand{padding:2px 2px;margin:0}
+  .brand b{font-size:16px}
+  .hamb{display:flex;align-items:center;justify-content:center}
+  .nav .navitem{display:none}            /* ซ่อนเมนูจนกว่าจะกด ☰ */
+  .nav.open .navitem{display:flex}
+  .nav .foot{display:none}
+  .nav.open .foot{display:block;margin-top:6px}
+  .navitem{padding:13px 14px;font-size:15px}
+  .content{padding:18px 16px}
+  .content h1{font-size:19px}
+  .dash-controls,.cal-head{gap:10px}
+}
 
 /* steps */
 .steps{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
@@ -884,13 +904,13 @@ input:focus,select:focus{outline:0;border-color:var(--blue);background:#fff}
 </div>
 <div class="app">
   <nav class="nav">
-    <div class="brand"><div class="logo">📋</div><b>AutoContentPoster</b></div>
+    <div class="brand"><div class="logo">📋</div><b>AutoContentPoster</b><button class="hamb" onclick="toggleNav()">☰</button></div>
     <div class="navitem active" data-v="ai" onclick="nav('ai')"><span class="ic">🤖</span> สร้างโพสต์ด้วย AI</div>
     <div class="navitem" data-v="news" onclick="nav('news')"><span class="ic">📰</span> สร้างโพสต์จากข่าว</div>
     <div class="navitem" data-v="schedule" onclick="nav('schedule')"><span class="ic">🗓️</span> ตารางการโพสต์</div>
     <div class="navitem" data-v="dash" onclick="nav('dash')"><span class="ic">📊</span> Dashboard</div>
     <div class="navitem" data-v="conn" onclick="nav('conn')"><span class="ic">🔌</span> การเชื่อมต่อเพจ</div>
-    <div class="navitem" data-v="users" onclick="nav('users')" id="navUsers" style="display:none"><span class="ic">👥</span> ผู้ใช้งาน &amp; สิทธิ์</div>
+    <div class="navitem" data-v="users" onclick="nav('users')" id="navUsers"><span class="ic">👥</span> ผู้ใช้งาน &amp; สิทธิ์</div>
     <div class="foot">
       <div class="who" id="whoBox"></div>
       <button class="logout-btn" onclick="doLogout()">🚪 ออกจากระบบ</button>
@@ -1058,7 +1078,9 @@ const $=id=>document.getElementById(id);
 async function post(u,b){const r=await fetch(u,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(b||{})});return r.json()}
 const LOAD=t=>`<div class="loadwrap"><div class="loadbar"><i></i></div><span>${t}</span></div>`;
 
+function toggleNav(){document.querySelector('.nav').classList.toggle('open');}
 function nav(v){
+  document.querySelector('.nav').classList.remove('open');   // เลือกเมนูแล้วปิดเมนูมือถือ
   document.querySelectorAll('.navitem').forEach(n=>n.classList.toggle('active',n.dataset.v===v));
   $('view-ai').style.display=v==='ai'?'block':'none';
   $('view-news').style.display=v==='news'?'block':'none';
@@ -1434,7 +1456,7 @@ async function boot(){
   if(!me.authed){$('loginOv').style.display='flex';return;}
   $('loginOv').style.display='none';
   $('whoBox').innerHTML='เข้าใช้โดย <b>'+me.user+'</b><br>'+(me.role==='admin'?'แอดมิน':'ผู้ใช้ทั่วไป');
-  $('navUsers').style.display=(me.role==='admin')?'flex':'none';   // เมนูจัดการผู้ใช้เฉพาะแอดมิน
+  document.querySelector('.nav').classList.toggle('is-admin',me.role==='admin');   // เมนูจัดการผู้ใช้เฉพาะแอดมิน
   checkFB();
 }
 async function doLogin(){
