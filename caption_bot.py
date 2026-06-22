@@ -338,6 +338,33 @@ IMAGE_MODEL = "gpt-image-2"   # = GPT Images 2.0 (ห้ามเปลี่ย
 IMAGE_QUALITY = "low"
 
 
+BRAND_LOGO = os.path.join(os.path.dirname(__file__), "brand_logo.png")   # โลโก้ร้าน (ถ้ามี → ซ้อนมุมขวาบนทุกรูป)
+
+
+def _overlay_logo(path):
+    # ซ้อนโลโก้ร้านไว้มุมขวาบนของรูป (มีพื้นขาวโปร่งให้เห็นชัดบนทุกพื้นหลัง)
+    if not os.path.exists(BRAND_LOGO):
+        return
+    try:
+        base = Image.open(path).convert("RGBA")
+        logo = Image.open(BRAND_LOGO).convert("RGBA")
+        W = base.width
+        tw = int(W * 0.26)                                  # โลโก้กว้าง ~26% ของรูป
+        logo = logo.resize((tw, max(1, int(logo.height * tw / logo.width))))
+        m = int(W * 0.035)
+        pad = int(tw * 0.07)
+        bw, bh = logo.width + pad * 2, logo.height + pad * 2
+        bx, by = base.width - bw - m, m
+        backdrop = Image.new("RGBA", (bw, bh), (0, 0, 0, 0))
+        ImageDraw.Draw(backdrop).rounded_rectangle([0, 0, bw - 1, bh - 1],
+                                                   radius=int(bh * 0.28), fill=(255, 255, 255, 215))
+        base.alpha_composite(backdrop, (bx, by))
+        base.alpha_composite(logo, (bx + pad, by + pad))
+        base.convert("RGB").save(path, "PNG")
+    except Exception as e:
+        print("overlay logo fail:", str(e)[:120])
+
+
 def make_ai_images(hook, caption, n=2):
     # สร้างรูปด้วย GPT Images 2.0 (low) — prompt ตามฟอร์แมตที่กำหนด, ขนาด 1:1, จำนวน n รูป
     prompt = f"สร้างรูปขนาด 1:1 ตามนี้\nHook : {hook}\nCaption : {caption}"
@@ -348,6 +375,7 @@ def make_ai_images(hook, caption, n=2):
         path = os.path.join(os.path.dirname(__file__), f"art_{i}.png")
         with open(path, "wb") as f:
             f.write(base64.b64decode(d.b64_json))
+        _overlay_logo(path)                                 # ซ้อนโลโก้ร้านมุมขวาบน
         arts.append({"cat": "GPT Image", "path": path})
     return arts
 
