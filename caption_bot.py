@@ -365,9 +365,63 @@ def _overlay_logo(path):
         print("overlay logo fail:", str(e)[:120])
 
 
-def make_ai_images(hook, caption, n=2):
+def _text_density_rule(level):
+    # แปลงค่า 0-100% → คำสั่งบอก AI ว่าให้ใส่ตัวหนังสือในรูปมาก/น้อยแค่ไหน
+    try:
+        level = max(0, min(100, int(level)))
+    except Exception:
+        level = 50
+    if level <= 5:
+        return ("สำคัญมาก: ในรูปนี้ 'ห้ามมีตัวหนังสือใดๆ ทั้งสิ้น' — ไม่มีพาดหัว ไม่มีคำบรรยาย "
+                "เป็นภาพล้วนสะอาดสวยงามอย่างเดียว (โลโก้ร้านจะถูกซ้อนภายหลัง ไม่ต้องวาดเอง)")
+    if level <= 33:
+        return ("ใส่ตัวหนังสือในรูป 'น้อยมาก' — มีแค่พาดหัวสั้นๆ วลีเดียวเด่นๆ ไม่เกิน 4-5 คำ "
+                "ไม่ต้องมีข้อความรอง เน้นพื้นที่ภาพเป็นหลัก ดูโปร่ง สะอาด")
+    if level <= 66:
+        return ("ใส่ตัวหนังสือในรูป 'ปริมาณปานกลาง' — พาดหัวเด่น 1 บรรทัด + ข้อความรองสั้นๆ 1 บรรทัด "
+                "อ่านง่าย วางสมดุลกับภาพ ไม่รก")
+    if level <= 90:
+        return ("ใส่ตัวหนังสือในรูป 'ค่อนข้างเยอะ' แบบโปสเตอร์ข้อมูล — พาดหัว + ข้อความรอง + จุดเด่น (bullet) 2-3 ข้อ "
+                "จัดวางเป็นระเบียบอ่านง่าย")
+    return ("ใส่ตัวหนังสือในรูป 'เต็มที่' แบบโปสเตอร์ข้อมูลแน่น — พาดหัวใหญ่ + รายละเอียด + bullet หลายข้อ "
+            "จัดเลย์เอาต์ให้ยังอ่านง่ายและสวยงาม")
+
+
+# กฎภาพพื้นฐาน — ภาพต้องเป็นของ AI ออริจินัล ไม่ใช่รูปดึงมา
+IMG_RULES = ("สำคัญ: ห้ามมีลายน้ำ (watermark) ใดๆ, ห้ามมีชื่อ/โลโก้เว็บสต็อกโฟโต้ (Getty Images, Shutterstock, iStock, "
+             "Adobe Stock, Dreamstime, 123RF, Alamy ฯลฯ), ห้ามมี URL เว็บไซต์ ห้ามมีเครดิตภาพ/ลายเซ็นช่างภาพ — "
+             "ต้องเป็นภาพต้นฉบับที่สร้างขึ้นใหม่ทั้งหมด สะอาด ไม่มีตัวอักษรแปลกปลอมทับบนภาพ. "
+             "ถ้ามีบุคคลในภาพ ต้องเป็น 'คนสมมติที่ AI สร้างขึ้นใหม่ทั้งหมด' ห้ามเหมือน/อ้างอิงใบหน้าบุคคลจริง คนดัง "
+             "ดารา หรือนายแบบ-นางแบบสต็อกโฟโต้คนใดคนหนึ่ง เป็นใบหน้าต้นฉบับที่ระบุตัวตนไม่ได้.")
+
+
+def resize_for_platform(src, out, W, H):
+    # ปรับรูปที่สร้างแล้วให้ได้ขนาด WxH สำหรับแพลตฟอร์มอื่น
+    # วิธี: วางรูปเต็มใบ (ไม่ตัดเนื้อหา/โลโก้) บนพื้นหลังที่เป็นรูปเดิมขยายเบลอ (สไตล์ IG)
+    from PIL import ImageFilter, ImageEnhance
+    im = Image.open(src).convert("RGB")
+    w, h = im.size
+    s = min(W / w, H / h)                       # contain: เห็นรูปครบทั้งใบ
+    fw, fh = max(1, round(w * s)), max(1, round(h * s))
+    fg = im.resize((fw, fh), Image.LANCZOS)
+    if fw == W and fh == H:                      # อัตราส่วนตรงพอดี ไม่ต้องเติมพื้นหลัง
+        fg.save(out, "PNG"); return
+    sc = max(W / w, H / h)                        # cover: ขยายเต็มเฟรมแล้วครอบกลาง
+    bw, bh = max(1, round(w * sc)), max(1, round(h * sc))
+    bg = im.resize((bw, bh), Image.LANCZOS)
+    left, top = (bw - W) // 2, (bh - H) // 2
+    bg = bg.crop((left, top, left + W, top + H))
+    bg = bg.filter(ImageFilter.GaussianBlur(30))
+    bg = ImageEnhance.Brightness(bg).enhance(0.80)   # หรี่พื้นหลังนิดให้รูปหลักเด่น
+    bg.paste(fg, ((W - fw) // 2, (H - fh) // 2))
+    bg.save(out, "PNG")
+
+
+def make_ai_images(hook, caption, n=2, text_level=50):
     # สร้างรูปด้วย GPT Images 2.0 (low) — prompt ตามฟอร์แมตที่กำหนด, ขนาด 1:1, จำนวน n รูป
-    prompt = f"สร้างรูปขนาด 1:1 ตามนี้\nHook : {hook}\nCaption : {caption}"
+    density = _text_density_rule(text_level)            # คำสั่งปริมาณตัวหนังสือในรูป (จากสไลเดอร์)
+    prompt = (f"สร้างรูปขนาด 1:1 ตามนี้ " + IMG_RULES + " " + density +
+              f"\nHook : {hook}\nCaption : {caption}")
     resp = client.images.generate(model=IMAGE_MODEL, prompt=prompt,
                                    size="1024x1024", quality=IMAGE_QUALITY, n=n)
     arts = []

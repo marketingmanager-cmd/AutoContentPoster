@@ -146,8 +146,33 @@ async def api_captions(req: Request):
 @app.post("/api/images")
 async def api_images(req: Request):
     d = await req.json()
-    arts = await run_in_threadpool(cb.make_ai_images, d.get("hook", ""), d.get("caption", ""))
+    text_level = d.get("text_level", 50)
+    arts = await run_in_threadpool(cb.make_ai_images, d.get("hook", ""), d.get("caption", ""), 2, text_level)
     return {"images": [{"url": "/img/" + os.path.basename(a["path"])} for a in arts]}
+
+
+RESIZE_PRESETS = {            # preset → (กว้าง, สูง)
+    "1x1": (1080, 1080),
+    "4x5": (1080, 1350),
+    "9x16": (1080, 1920),
+    "16x9": (1920, 1080),
+}
+
+
+@app.post("/api/resize")
+async def api_resize(req: Request):
+    d = await req.json()
+    name = os.path.basename((d.get("image_url") or "").replace("/img/", ""))
+    preset = d.get("preset")
+    if preset not in RESIZE_PRESETS or not (name.startswith("art_") and name.endswith(".png")):
+        return {"ok": False, "error": "พารามิเตอร์ไม่ถูกต้อง"}
+    src = os.path.join(HERE, name)
+    if not os.path.exists(src):
+        return {"ok": False, "error": "ไม่พบรูปต้นฉบับ — กรุณาสร้างรูปใหม่"}
+    W, H = RESIZE_PRESETS[preset]
+    out_name = f"{name[:-4]}_{preset}.png"
+    await run_in_threadpool(cb.resize_for_platform, src, os.path.join(HERE, out_name), W, H)
+    return {"ok": True, "url": "/img/" + out_name}
 
 
 @app.get("/img/{name}")
@@ -616,10 +641,11 @@ body{margin:0;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;background:
 /* steps */
 .steps{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
 .steps .s{flex:1;min-width:84px;font-size:12px;color:var(--muted);padding:9px;border-radius:11px;
-  background:var(--surface);border:1px solid var(--line);text-align:center}
+  background:var(--surface);border:1px solid var(--line);text-align:center;cursor:pointer;transition:.15s}
 .steps .s b{display:block;font-size:11px;opacity:.75}
 .steps .s.on{background:var(--grad);color:#fff;border-color:transparent;box-shadow:0 6px 16px rgba(14,165,233,.30)}
 .steps .s.done{border-color:var(--blue);color:var(--blue)}
+.steps .s.done:hover{background:#e9fbfb;box-shadow:0 4px 12px rgba(14,165,233,.18)}
 
 .sec{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;
   margin-bottom:16px;box-shadow:var(--shadow);display:none}
@@ -842,6 +868,24 @@ input:focus,select:focus{outline:0;border-color:var(--blue);background:#fff}
 .recap .rc{background:#fff;border:1px solid var(--line);border-left:4px solid var(--blue);border-radius:10px;
   padding:8px 12px;font-size:13px;box-shadow:var(--shadow)}
 .recap .rc b{color:var(--blue);font-size:11px;display:block;margin-bottom:2px}
+.recap .rc.edit{cursor:pointer;transition:.15s}
+.recap .rc.edit:hover{background:#e9fbfb;border-left-color:var(--blue-d);box-shadow:0 4px 12px rgba(14,165,233,.18);transform:translateX(2px)}
+/* สไลเดอร์ปริมาณตัวหนังสือในรูป */
+.txtslider{margin:0 0 4px;padding:12px 14px;border:1.5px solid var(--line);border-radius:12px;background:#fff}
+.tsrow{display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:8px}
+.tsrow b{color:var(--blue);font-size:13px}
+.txtslider input[type=range]{width:100%;-webkit-appearance:none;appearance:none;height:6px;border-radius:6px;
+  background:linear-gradient(90deg,#cdeef4,var(--blue));outline:none;cursor:pointer}
+.txtslider input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:20px;height:20px;
+  border-radius:50%;background:var(--blue);border:3px solid #fff;box-shadow:0 1px 4px rgba(14,165,233,.45);cursor:pointer}
+.txtslider input[type=range]::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--blue);
+  border:3px solid #fff;box-shadow:0 1px 4px rgba(14,165,233,.45);cursor:pointer}
+.tsticks{display:flex;justify-content:space-between;margin-top:6px;font-size:10.5px;color:var(--muted)}
+/* ปุ่มดาวน์โหลดขนาดแพลตฟอร์ม */
+.sizegrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.sizegrid .btn{display:flex;flex-direction:column;align-items:flex-start;text-align:left;line-height:1.35;padding:11px 13px}
+.sizegrid .btn small{font-weight:400;opacity:.7;font-size:10.5px;margin-top:2px}
+@media(max-width:520px){.sizegrid{grid-template-columns:1fr}}
 
 /* phone mockups (พรีวิวเหมือนในมือถือ) */
 .phones{display:flex;gap:20px;flex-wrap:wrap;justify-content:center}
@@ -949,16 +993,36 @@ input:focus,select:focus{outline:0;border-color:var(--blue);background:#fff}
     <!-- ===== ขั้นตอนสร้างคอนเทนต์ (ใช้ร่วมกันทั้ง 2 เมนู) ===== -->
     <div id="wizard" style="display:none">
       <div class="steps">
-        <div class="s on" id="st2">1<b>Hook</b></div><div class="s" id="st3">2<b>แคปชัน</b></div>
-        <div class="s" id="st4">3<b>รูปภาพ</b></div><div class="s" id="st5">4<b>พรีวิว</b></div>
+        <div class="s on" id="st2" onclick="goStep(2)">1<b>Hook</b></div><div class="s" id="st3" onclick="goStep(3)">2<b>แคปชัน</b></div>
+        <div class="s" id="st4" onclick="goStep(4)">3<b>รูปภาพ</b></div><div class="s" id="st5" onclick="goStep(5)">4<b>พรีวิว</b></div>
       </div>
       <div id="recap" class="recap"></div>
       <section class="sec" id="s2"><h2><span class="n">1</span> เลือกพาดหัว (Hook)</h2><div id="hooks"></div></section>
       <section class="sec" id="s3"><h2><span class="n">2</span> เลือกแคปชัน</h2><div id="caps"></div></section>
-      <section class="sec" id="s4"><h2><span class="n">3</span> เลือกรูปภาพ</h2><div id="imgs" class="imgs"></div></section>
+      <section class="sec" id="s4"><h2><span class="n">3</span> เลือกรูปภาพ</h2>
+        <div class="obox" style="margin-bottom:14px">
+          <div class="txtslider">
+            <div class="tsrow"><span>📝 ปริมาณตัวหนังสือในรูป</span><b id="tlVal">ปานกลาง · 50%</b></div>
+            <input type="range" id="textLevel" min="0" max="100" step="5" value="50" oninput="updTextLevel()">
+            <div class="tsticks"><span>ไม่มี</span><span>น้อย</span><span>ปานกลาง</span><span>เยอะ</span><span>เต็ม</span></div>
+          </div>
+          <div class="btnrow"><button class="btn block" onclick="loadImgs()">🔄 สร้างรูปใหม่ตามที่ตั้ง</button></div>
+          <div class="fbnote">เลื่อนแถบปรับปริมาณตัวหนังสือแล้วกดสร้างใหม่ (น้อย = ภาพคมสวยกว่า) · กดซ้ำเพื่อสุ่มรูปใหม่</div>
+        </div>
+        <div id="imgs" class="imgs"></div></section>
       <section class="sec" id="s5">
         <h2><span class="n">4</span> พรีวิวก่อนโพสต์</h2>
         <div class="preview" id="preview"><div class="ph">เลือกรูปในขั้นที่ 3 เพื่อดูพรีวิว</div></div>
+        <div class="obox" style="margin:14px 0">
+          <h4>📐 ดาวน์โหลดขนาดอื่น (สำหรับลงแพลตฟอร์มต่างๆ)</h4>
+          <div class="obsub">ใช้รูปที่เลือกปรับให้พอดีแต่ละแพลตฟอร์ม — เติมพื้นหลังเบลอ ไม่ตัดเนื้อหา/โลโก้ร้าน</div>
+          <div class="sizegrid">
+            <button class="btn ghost" onclick="dlSize('1x1',this)">⬜ จัตุรัส 1:1<small>Facebook / IG ฟีด · 1080×1080</small></button>
+            <button class="btn ghost" onclick="dlSize('4x5',this)">📱 แนวตั้ง 4:5<small>IG ฟีด · 1080×1350</small></button>
+            <button class="btn ghost" onclick="dlSize('9x16',this)">📲 สตอรี่/รีล 9:16<small>IG / FB / TikTok · 1080×1920</small></button>
+            <button class="btn ghost" onclick="dlSize('16x9',this)">🖥️ แนวนอน 16:9<small>เว็บ / YouTube · 1920×1080</small></button>
+          </div>
+        </div>
         <label>ปลายทาง</label>
         <select id="dest" onchange="buildPreview()"><option value="telegram">📨 Telegram</option><option value="facebook" disabled>📘 Facebook (กำลังเช็ค...)</option></select>
         <div id="fbnote" class="fbnote"></div>
@@ -1099,6 +1163,36 @@ function nav(v){
 function step(n){for(let i=2;i<=5;i++){const e=$("st"+i);e.classList.toggle("on",i===n);e.classList.toggle("done",i<n)}}
 // แสดงทีละขั้น — โชว์เฉพาะ section เดียว ที่เหลือซ่อน
 function open(id){['s2','s3','s4','s5'].forEach(s=>$(s).classList.toggle('on',s===id));window.scrollTo({top:0,behavior:'smooth'})}
+// ย้อนกลับ/ข้ามไปยังขั้นที่ต้องการ (ของที่เลือกไว้ยังอยู่ครบ คลิกใหม่เพื่อเปลี่ยนได้)
+function goStep(n){
+  if($("wizard").style.display==="none")return;
+  if(n>=3&&!st.hook){alert("เลือกพาดหัวก่อนนะ");return}
+  if(n>=4&&!st.caption){alert("เลือกแคปชันก่อนนะ");return}
+  if(n>=5&&!st.image_url){alert("เลือกรูปก่อนนะ");return}
+  step(n);open("s"+n);
+}
+function updTextLevel(){
+  const v=parseInt($("textLevel").value);
+  let label;
+  if(v<=5)label="ไม่มีตัวหนังสือ";
+  else if(v<=33)label="น้อย";
+  else if(v<=66)label="ปานกลาง";
+  else if(v<=90)label="เยอะ";
+  else label="เต็มที่";
+  $("tlVal").textContent=label+" · "+v+"%";
+}
+async function dlSize(preset,btn){
+  if(!st.image_url){alert("เลือกรูปก่อนนะ");return}
+  const old=btn.innerHTML;btn.disabled=true;btn.style.opacity=.55;btn.innerHTML="⏳ กำลังปรับขนาด...";
+  try{
+    const r=await post("/api/resize",{image_url:st.image_url,preset:preset});
+    if(!r||!r.ok){alert((r&&r.error)||"ปรับขนาดไม่สำเร็จ");return}
+    const a=document.createElement("a");
+    a.href=r.url+"?t="+Date.now();a.download="post_"+preset+".png";
+    document.body.appendChild(a);a.click();a.remove();
+  }catch(e){alert("เกิดข้อผิดพลาด: "+e);}
+  finally{btn.disabled=false;btn.style.opacity=1;btn.innerHTML=old;}
+}
 
 function newsEmoji(cat){const c=(cat||"").toLowerCase();
   if(/ไฟ|อัคคี|เพลิง|fire/.test(c))return"🔥";
@@ -1153,7 +1247,7 @@ async function start(ov){
   $('wizard').style.display='block';
   step(2);open("s2");$("hooks").innerHTML=LOAD("กำลังคิดพาดหัว 9 แบบ...");
   const d=await post("/api/hooks",{topic:st.topic,news:st.news});
-  renderPick("hooks",d.hooks,(it)=>{const b=it.text.split("\n");return `<pre>${b[0]}</pre>${b[1]?`<div class="sub">${b[1]}</div>`:""}`},(it)=>{st.hook=it.text.split("\n")[0];loadCaps()});
+  renderPick("hooks",d.hooks,(it)=>{const b=it.text.split("\n");return `<pre>${b[0]}</pre>${b[1]?`<div class="sub">${b[1]}</div>`:""}`},(it)=>{st.hook=it.text.split("\n")[0];st.caption="";st.image_url="";loadCaps()});
 }
 function renderPick(box,items,fmt,onPick){
   let h="",cur="";
@@ -1166,12 +1260,13 @@ async function loadCaps(){
   updateRecap();   // โชว์พาดหัวที่เพิ่งเลือก
   step(3);open("s3");$("caps").innerHTML=LOAD("กำลังเขียนแคปชัน...");
   const d=await post("/api/captions",{topic:st.topic,hook:st.hook,news:st.news});
-  renderPick("caps",d.captions,(it)=>`<pre>${it.text}</pre>`,(it)=>{st.caption=it.text;loadImgs()});
+  renderPick("caps",d.captions,(it)=>`<pre>${it.text}</pre>`,(it)=>{st.caption=it.text;st.image_url="";loadImgs()});
 }
 async function loadImgs(){
   updateRecap();   // โชว์พาดหัว + แคปชันที่เลือก
   step(4);open("s4");$("imgs").innerHTML=LOAD("AI กำลังสร้างรูป 2 แบบ (รอสักครู่)...");
-  const d=await post("/api/images",{hook:st.hook,caption:st.caption});
+  const tl=$("textLevel")?parseInt($("textLevel").value):50;
+  const d=await post("/api/images",{hook:st.hook,caption:st.caption,text_level:tl});
   $("imgs").innerHTML=d.images.map(im=>`<img src="${im.url}" onclick="pickImg('${im.url}',this)">`).join("")
     +'<div class="sub" style="grid-column:1/3;color:var(--muted);font-size:12px">👆 เลือกรูป 1 อันเพื่อไปหน้าพรีวิว</div>';
 }
@@ -1183,8 +1278,8 @@ function pickImg(u,el){
 // ---- แถบสรุปสิ่งที่เลือก (ค้างอยู่ทุกขั้น) ----
 function updateRecap(){
   let h="";
-  if(st.hook)h+=`<div class="rc"><b>พาดหัวที่เลือก</b>${st.hook}</div>`;
-  if(st.caption)h+=`<div class="rc"><b>แคปชันที่เลือก</b>${st.caption.split("\n")[0].slice(0,90)}…</div>`;
+  if(st.hook)h+=`<div class="rc edit" onclick="goStep(2)" title="คลิกเพื่อเปลี่ยนพาดหัว"><b>พาดหัวที่เลือก ✏️</b>${st.hook}</div>`;
+  if(st.caption)h+=`<div class="rc edit" onclick="goStep(3)" title="คลิกเพื่อเปลี่ยนแคปชัน"><b>แคปชันที่เลือก ✏️</b>${st.caption.split("\n")[0].slice(0,90)}…</div>`;
   $("recap").innerHTML=h;
 }
 
